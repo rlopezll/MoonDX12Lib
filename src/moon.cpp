@@ -582,6 +582,7 @@ namespace Moon {
 			case WM_PAINT:
 				Update();
 				break;
+			case WM_SYSKEYDOWN:
 			case WM_KEYDOWN:
 			{
 				bool alt = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
