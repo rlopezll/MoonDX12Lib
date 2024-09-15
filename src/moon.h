@@ -8,6 +8,11 @@
 
 namespace Moon {
 
+	class MoonMesh;
+	class MoonTexture;
+	class MoonMaterial;
+	class MoonShader;
+
 	enum class EShaderType {
 		Vertex,
 		Pixel
@@ -18,26 +23,28 @@ namespace Moon {
 	};
 
 	typedef void (*UpdateFunc)(float elapsed);
-	typedef void* ShaderPtr;
-	typedef void* MeshPtr;
-	typedef void* TexturePtr;
-	typedef void* MaterialPtr;
+	typedef void (*RenderFunc)();
 
-	bool CreateAppWindow(HINSTANCE hInstance, const char* title, int xres, int yres, bool bfullscreen, bool bconsoleouput, UpdateFunc func);
+	bool CreateAppWindow(HINSTANCE hInstance, const char* title, int xres, int yres, bool bfullscreen, bool bconsoleouput);
+	void SetCallbacks(UpdateFunc updateFunc, RenderFunc renderFunc);
 	void DestroyAppWindow();
 	void Run();
 
 	// Load/Prepare to GPU assets
-	MaterialPtr CreateMaterial(const char* name, EVertexDeclType vertexType);
-	void        CompileMaterial(MaterialPtr material);
-	void        LoadShader(MaterialPtr material, const char* filename, EShaderType shaderType, const char* mainFuncName);
-	TexturePtr  LoadTextureTGA(const char* filename);
-	TexturePtr  LoadTextureTGA(MaterialPtr material, const char* filename, const char* sampleName);
-	void        AddTexture(MaterialPtr material, TexturePtr texture, const char* sampleName);
-	MeshPtr		  CreateMesh(const void* buffer, int size, int nvertices);
+	MoonMaterial* CreateMaterial(const char* name);
+	MoonMesh*     CreateMesh(const void* buffer, int size, int nvertices);
+	MoonTexture*  LoadTextureTGA(const char* filename);
+	MoonShader*		LoadShader(const char* filename, EShaderType shaderType, const char *mainFuncName);
+
+	// Material functions
+	void SetMaterialVtxDecl(MoonMaterial* material, EVertexDeclType vertexType);
+	void SetMaterialTexture(MoonMaterial* material, const char* sample, MoonTexture* texture);
+	void SetMaterialShader(MoonMaterial* material, MoonShader*shader);
+	//void ReloadMaterialShaders(MoonMaterial* material);
+	void CompileMaterial(MoonMaterial* material);
 
 	// Draw functions
-	void     SetClearColor(float r, float g, float b, float a);
-	void     DrawMesh(MaterialPtr material, MeshPtr mesh);
+	void SetClearColor(float r, float g, float b, float a);
+	void DrawMesh(MoonMaterial* material, MoonMesh* mesh);
 
 };
