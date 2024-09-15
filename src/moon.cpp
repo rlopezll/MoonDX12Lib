@@ -10,6 +10,10 @@
 #include <stdexcept>
 #include <vector>
 #include <wrl.h>
+#if defined(_DEBUG)
+#include <dxgidebug.h>
+#endif
+#include <DirectXMath.h>
 
 using namespace Microsoft::WRL;
 
@@ -20,7 +24,8 @@ using namespace Microsoft::WRL;
 
 namespace Moon {
 	
-#define CheckFailedRet(hr) { \
+#define CheckFailedRet(func) { \
+		HRESULT hr = func; \
 		assert(SUCCEEDED(hr)); \
 			if (FAILED(hr)) { \
 					printf("DX12 Failed! Error code: %d\n", hr); \
@@ -28,7 +33,8 @@ namespace Moon {
 			}\
 	}
 
-#define CheckFailedRetValue(hr, val) { \
+#define CheckFailedRetValue(func, val) { \
+		HRESULT hr = func; \
 		assert(SUCCEEDED(hr)); \
 			if (FAILED(hr)) { \
 					printf("DX12 Failed! Error code: %d\n", hr); \
@@ -88,6 +94,7 @@ namespace Moon {
 		UINT fenceValue = 1;
 		bool vSync = false;
 		bool bFullscreen = false;
+		bool bFirstUpdate = true;
 		RECT windowRect;
 
 		std::map<std::string, ComPtr<ID3DBlob>> shaders;
@@ -125,6 +132,7 @@ namespace Moon {
 	void Update();
 	void Resize(uint32_t width, uint32_t height);
 	void LoadPipeline();
+
 	ComPtr<IDXGIAdapter4> GetAdapter();
 	D3D12_INPUT_ELEMENT_DESC* GetInputElementDesc(EVertexDeclType vertexType, int* nInputElements);
 	void WaitForPreviousFrame();
@@ -162,18 +170,12 @@ namespace Moon {
 
 		// Crear ventana
 		WNDCLASSEX wc = {};
-		wc.cbSize = sizeof(WNDCLASSEXA);
+		wc.cbSize = sizeof(WNDCLASSEX);
 		wc.style = CS_HREDRAW | CS_VREDRAW;
 		wc.lpfnWndProc = WndProc;
-		wc.cbClsExtra = 0;
-		wc.cbWndExtra = 0;
 		wc.hInstance = hInstance;
-		wc.hIcon = ::LoadIcon(hInstance, NULL); //  MAKEINTRESOURCE(APPLICATION_ICON));
-		wc.hCursor = ::LoadCursor(NULL, IDC_ARROW);
-		wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-		wc.lpszMenuName = NULL;
+		wc.hCursor = ::LoadCursor(nullptr, IDC_ARROW);
 		wc.lpszClassName = "DX12WindowClass";
-		wc.hIconSm = ::LoadIcon(hInstance, NULL); //  MAKEINTRESOURCE(APPLICATION_ICON));
 
 		static HRESULT hr = RegisterClassEx(&wc);
 		assert(SUCCEEDED(hr));
@@ -182,7 +184,7 @@ namespace Moon {
 		int screenHeight = ::GetSystemMetrics(SM_CYSCREEN);
 
 		RECT windowRect = { 0, 0, static_cast<LONG>(xres), static_cast<LONG>(yres) };
-		::AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
+		AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, FALSE);
 
 		int windowWidth = windowRect.right - windowRect.left;
 		int windowHeight = windowRect.bottom - windowRect.top;
@@ -191,17 +193,28 @@ namespace Moon {
 		int windowX = std::max<int>(0, (screenWidth - windowWidth) / 2);
 		int windowY = std::max<int>(0, (screenHeight - windowHeight) / 2);
 
-		Context->hWnd = CreateWindowEx(0, wc.lpszClassName, title,
-			WS_OVERLAPPEDWINDOW, windowX, windowY,
-			xres, yres, NULL, NULL, hInstance, NULL);
+		Context->hWnd = CreateWindow(
+			wc.lpszClassName, 
+			title,
+			WS_OVERLAPPEDWINDOW, 
+			windowX, 
+			windowY,
+			xres, 
+			yres, 
+			nullptr, // We have no parent window.
+			nullptr, // We aren't using menus.
+			hInstance, 
+			nullptr);
 
 		assert(Context->hWnd);
+
+		LoadPipeline();
 
 		if (bfullscreen) {
 			SetFullscreen(true);
 		}
 		else {
-			ShowWindow(Context->hWnd, SW_SHOW);
+			ShowWindow(Context->hWnd, SW_SHOWDEFAULT);
 		}
 
 		// create the console
@@ -214,8 +227,6 @@ namespace Moon {
 			}
 		}
 
-		LoadPipeline();
-
 		return true;
 	}
 
@@ -223,7 +234,15 @@ namespace Moon {
 	{
 		CheckMoonContext(Context);
 
-		WaitForPreviousFrame();	
+#if defined(_DEBUG)
+		ComPtr<IDXGIDebug1> debugController;
+		if (SUCCEEDED(DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debugController))))
+		{
+			debugController->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_FLAGS(DXGI_DEBUG_RLO_DETAIL | DXGI_DEBUG_RLO_IGNORE_INTERNAL));
+		}
+#endif
+
+		WaitForPreviousFrame();
 		CloseHandle(Context->fenceEvent);
 
 		if (Context->bConsoleOuput) {
@@ -386,13 +405,13 @@ namespace Moon {
 		D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 		psoDesc.InputLayout = { inputElementsDescs, (UINT)nInputElements };
 		psoDesc.pRootSignature = Context->rootSignature.Get();
-		psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 		if (material->vertexShader) {
 			psoDesc.VS = CD3DX12_SHADER_BYTECODE(material->vertexShader.Get());
 		}
 		if (material->pixelShader) {
 			psoDesc.PS = CD3DX12_SHADER_BYTECODE(material->pixelShader.Get());
 		}
+		psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 		psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 		psoDesc.DepthStencilState.DepthEnable = FALSE;
 		psoDesc.DepthStencilState.StencilEnable = FALSE;
@@ -402,6 +421,14 @@ namespace Moon {
 		psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
 		psoDesc.SampleDesc.Count = 1;
 		CheckFailedRet(Context->device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&material->pipelineState)));
+
+		// Create the command list.
+		//CheckFailedRet(Context->device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, Context->commandAllocator.Get(), material->pipelineState.Get(), IID_PPV_ARGS(&Context->commandList)));
+		//Context->commandList->SetName(L"Moon main commandlist");
+
+		// Command lists are created in the recording state, but there is nothing
+		// to record yet. The main loop expects it to be closed, so close it now.
+		//Context->commandList->Close();
 	}
 
 #pragma pack(push, 1)
@@ -581,7 +608,7 @@ namespace Moon {
 			{
 			case WM_PAINT:
 				Update();
-				break;
+				return 0;
 			case WM_SYSKEYDOWN:
 			case WM_KEYDOWN:
 			{
@@ -598,12 +625,12 @@ namespace Moon {
 					break;
 				}
 			}
-			break;
+			return 0;
 			// The default window procedure will play a system notification sound 
 			// when pressing the Alt+Enter keyboard combination if this message is 
 			// not handled.
 			case WM_SYSCHAR:
-				break;
+				return 0;
 			case WM_SIZE:
 			{
 				RECT clientRect = {};
@@ -613,49 +640,19 @@ namespace Moon {
 				int height = clientRect.bottom - clientRect.top;
 
 				Resize(width, height);
+				return 0;
+
 			}
-			break;
 			case WM_DESTROY:
 				PostQuitMessage(0);
-				break;
-			default:
-				return ::DefWindowProc(hwnd, msg, wParam, lParam);
+				return 0;
 			}
 		}
-		else {
-			return ::DefWindowProc(hwnd, msg, wParam, lParam);
-		}
-		return 0;
+		return DefWindowProc(hwnd, msg, wParam, lParam);
 	}
 
 	void Update()
 	{
-		CheckMoonContext(Context);
-		if(Context->device == nullptr)
-			return;
-
-		Context->commandAllocator->Reset();
-		Context->commandList->Reset(Context->commandAllocator.Get(), nullptr);
-
-		// Set necessary state.
-		Context->commandList->SetGraphicsRootSignature(Context->rootSignature.Get());
-
-		//ID3D12DescriptorHeap* ppHeaps[] = { Context->srvHeap.Get() };
-		//Context->commandList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
-
-		//Context->commandList->SetGraphicsRootDescriptorTable(0, Context->srvHeap->GetGPUDescriptorHandleForHeapStart());
-
-		Context->commandList->RSSetViewports(1, &Context->viewport);
-		Context->commandList->RSSetScissorRects(1, &Context->scissorRect);
-
-		// Indicate that the back buffer will be used as a render target.
-		CD3DX12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Context->renderTargets[Context->frameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-		Context->commandList->ResourceBarrier(1, &preBarrier);
-
-		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Context->rtvHeap->GetCPUDescriptorHandleForHeapStart(), Context->frameIndex, Context->rtvDescriptorSize);
-		Context->commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
-		Context->commandList->ClearRenderTargetView(rtvHandle, Context->clearColor, 0, nullptr);
-
 		static double elapsedSeconds = 0.0;
 		static std::chrono::high_resolution_clock clock;
 		static auto t0 = clock.now();
@@ -664,17 +661,54 @@ namespace Moon {
 		auto deltaTime = t1 - t0;
 		t0 = t1;
 		elapsedSeconds += deltaTime.count() * 1e-9;
+
+		CheckMoonContext(Context);
+		if(Context->device == nullptr)
+			return;
+
+		if (Context->bFirstUpdate) {
+			Context->bFirstUpdate = false;
+			WaitForPreviousFrame();
+		}
+
+		// Command list allocators can only be reset when the associated 
+		// command lists have finished execution on the GPU; apps should use 
+		// fences to determine GPU execution progress.
+		Context->commandAllocator->Reset();
+
+		// However, when ExecuteCommandList() is called on a particular command 
+		// list, that command list can then be reset at any time and must be before 
+		// re-recording.
+		Context->commandList->Reset(Context->commandAllocator.Get(), nullptr);
+
+		// Set necessary state.
+		Context->commandList->SetGraphicsRootSignature(Context->rootSignature.Get());
+		Context->commandList->RSSetViewports(1, &Context->viewport);
+		Context->commandList->RSSetScissorRects(1, &Context->scissorRect);
+
+		// Indicate that the back buffer will be used as a render target.
+		CD3DX12_RESOURCE_BARRIER preBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Context->renderTargets[Context->frameIndex].Get(), 
+																					D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+		Context->commandList->ResourceBarrier(1, &preBarrier);
+
+		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Context->rtvHeap->GetCPUDescriptorHandleForHeapStart(), Context->frameIndex, Context->rtvDescriptorSize);
+		Context->commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+
+		const float clearColor[] = { 0.0f, 0.2f, 0.4f, 1.0f };
+		Context->commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+
 		// Call external update
 		if (Context->func) {
 			Context->func((float)elapsedSeconds);
 		}
 
 		// Indicate that the back buffer will now be used to present.
-		CD3DX12_RESOURCE_BARRIER postBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Context->renderTargets[Context->frameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+		CD3DX12_RESOURCE_BARRIER postBarrier = CD3DX12_RESOURCE_BARRIER::Transition(Context->renderTargets[Context->frameIndex].Get(), 
+																					 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 		Context->commandList->ResourceBarrier(1, &postBarrier);
-
 		Context->commandList->Close();
 
+		// Execute the command list.
 		ID3D12CommandList* ppCommandLists[] = { Context->commandList.Get() };
 		Context->commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
@@ -702,17 +736,23 @@ namespace Moon {
 	{
 		CheckMoonContext(Context);
 		
+		UINT dxgiFactoryFlags = 0;
 #if defined(_DEBUG)
-		// Enable the D3D12 debug layer.
+		// Enable the debug layer (requires the Graphics Tools "optional feature").
+		// NOTE: Enabling the debug layer after device creation will invalidate the active device.
 		{
-
 			ComPtr<ID3D12Debug> debugController;
 			if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&debugController))))
 			{
 				debugController->EnableDebugLayer();
+				// Enable additional debug layers.
+				dxgiFactoryFlags |= DXGI_CREATE_FACTORY_DEBUG;
 			}
 		}
 #endif
+
+		ComPtr<IDXGIFactory4> dxgiFactory4;
+		CheckFailedRet(CreateDXGIFactory2(dxgiFactoryFlags, IID_PPV_ARGS(&dxgiFactory4)));
 
 		ComPtr<IDXGIAdapter4> adapter = GetAdapter();
 		assert(adapter);
@@ -767,13 +807,6 @@ namespace Moon {
 
 		CheckFailedRet(Context->device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&Context->commandQueue)));
 
-		ComPtr<IDXGIFactory4> dxgiFactory4;
-		UINT createFactoryFlags = 0;
-#if defined(_DEBUG)
-		createFactoryFlags = DXGI_CREATE_FACTORY_DEBUG;
-#endif
-		CheckFailedRet(CreateDXGIFactory2(createFactoryFlags, IID_PPV_ARGS(&dxgiFactory4)));
-
 		BOOL allowTearing = FALSE;
 		ComPtr<IDXGIFactory5> dxgiFactory5;
 		if (SUCCEEDED(dxgiFactory4.As(&dxgiFactory5)))
@@ -795,10 +828,9 @@ namespace Moon {
 		swapChainDesc.Width = Context->width;
 		swapChainDesc.Height = Context->height;
 		swapChainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		swapChainDesc.Stereo = FALSE;
 		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-		swapChainDesc.SampleDesc = {1 ,0};
+		swapChainDesc.SampleDesc = { 1 ,0 };
 		swapChainDesc.Scaling = DXGI_SCALING_STRETCH;
 		swapChainDesc.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
 		swapChainDesc.Flags = allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
@@ -812,23 +844,21 @@ namespace Moon {
 			nullptr,
 			&swapChain
 		));
-
-		CheckFailedRet(swapChain.As(&Context->swapChain));
-
 		// This sample does not support fullscreen transitions.
 		CheckFailedRet(dxgiFactory4->MakeWindowAssociation(Context->hWnd, DXGI_MWA_NO_ALT_ENTER));
 
+		CheckFailedRet(swapChain.As(&Context->swapChain));
 		Context->frameIndex = Context->swapChain->GetCurrentBackBufferIndex();
-
 
 		// Create descriptor heaps.
 		{
 			// Describe and create a render target view (RTV) descriptor heap.
 			D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
-			rtvHeapDesc.NumDescriptors = Context->nFrameCount;
+			rtvHeapDesc.NumDescriptors = MoonContext::nFrameCount;
 			rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 			rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 			CheckFailedRet(Context->device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&Context->rtvHeap)));
+			Context->rtvDescriptorSize = Context->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
 			// Describe and create a shader resource view (SRV) heap for the texture.
 			D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
@@ -836,8 +866,6 @@ namespace Moon {
 			srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 			srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 			CheckFailedRet(Context->device->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&Context->srvHeap)));
-
-			Context->rtvDescriptorSize = Context->device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 		}
 
 		// Create frame resources.
@@ -845,7 +873,7 @@ namespace Moon {
 			CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(Context->rtvHeap->GetCPUDescriptorHandleForHeapStart());
 
 			// Create a RTV for each frame.
-			for (UINT n = 0; n < Context->nFrameCount; n++)
+			for (UINT n = 0; n < MoonContext::nFrameCount; n++)
 			{
 				CheckFailedRet(Context->swapChain->GetBuffer(n, IID_PPV_ARGS(&Context->renderTargets[n])));
 				Context->device->CreateRenderTargetView(Context->renderTargets[n].Get(), nullptr, rtvHandle);
@@ -857,53 +885,13 @@ namespace Moon {
 
 		//Create Fence
 		CheckFailedRet(Context->device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&Context->fence)));
-		Context->fenceEvent = ::CreateEvent(NULL, FALSE, FALSE, NULL);
-		assert(Context->fenceEvent); //HRESULT_FROM_WIN32(GetLastError()) to check the error
 		Context->fenceValue = 1;
+		Context->fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
+		assert(Context->fenceEvent); //HRESULT_FROM_WIN32(GetLastError()) to check the error
 
 
 		// Create the root signature.
 		{
-			//D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData = {};
-
-			//// This is the highest version the sample supports. If CheckFeatureSupport succeeds, the HighestVersion returned will not be greater than this.
-			//featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-
-			//if (FAILED(Context->device->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData))))
-			//{
-			//	featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
-			//}
-
-			//CD3DX12_DESCRIPTOR_RANGE1 ranges[1] = {};
-			//ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0, 0, D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC);
-
-			//CD3DX12_ROOT_PARAMETER1 rootParameters[1] = {};
-			//rootParameters[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_PIXEL);
-
-			//D3D12_STATIC_SAMPLER_DESC sampler = {};
-			//sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
-			//sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-			//sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-			//sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
-			//sampler.MipLODBias = 0;
-			//sampler.MaxAnisotropy = 0;
-			//sampler.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
-			//sampler.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
-			//sampler.MinLOD = 0.0f;
-			//sampler.MaxLOD = D3D12_FLOAT32_MAX;
-			//sampler.ShaderRegister = 0;
-			//sampler.RegisterSpace = 0;
-			//sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-
-			//CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc;
-			//rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &sampler, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
-
-			//ComPtr<ID3DBlob> signature;
-			//ComPtr<ID3DBlob> error;
-			//CheckFailedRet(D3DX12SerializeVersionedRootSignature(&rootSignatureDesc, featureData.HighestVersion, &signature, &error));
-			//CheckFailedRet(Context->device->CreateRootSignature(0, signature->GetBufferPointer(), signature->GetBufferSize(), IID_PPV_ARGS(&Context->rootSignature)));
-			//Context->rootSignature->SetName(L"Moon root signature");
-			
 			CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
 			rootSignatureDesc.Init(0, nullptr, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -914,8 +902,12 @@ namespace Moon {
 			Context->rootSignature->SetName(L"Moon root signature");
 		}
 
+		// Create the command list.
 		CheckFailedRet(Context->device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, Context->commandAllocator.Get(), nullptr, IID_PPV_ARGS(&Context->commandList)));
 		Context->commandList->SetName(L"Moon main commandlist");
+
+		// Command lists are created in the recording state, but there is nothing
+		// to record yet. The main loop expects it to be closed, so close it now.
 		Context->commandList->Close();
 
 	}
@@ -968,9 +960,10 @@ namespace Moon {
 		// illustrate how to use fences for efficient resource usage.
 
 		// Wait for the GPU to be done with all resources.
-		uint64_t fenceValueForSignal = ++Context->fenceValue;
+		const uint64_t fenceValueForSignal = Context->fenceValue;
 		HRESULT hr = Context->commandQueue->Signal(Context->fence.Get(), fenceValueForSignal);
 		assert(SUCCEEDED(hr));
+		++Context->fenceValue;
 
 		// Wait until the previous frame is finished.
 		if (Context->fence->GetCompletedValue() < fenceValueForSignal)
@@ -979,6 +972,7 @@ namespace Moon {
 			assert(SUCCEEDED(hr));
 			WaitForSingleObject(Context->fenceEvent, INFINITE);
 		}
+		Context->frameIndex = Context->swapChain->GetCurrentBackBufferIndex();
 	}
 
 	void SetFullscreen(bool fullscreen)

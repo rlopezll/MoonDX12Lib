@@ -5,6 +5,8 @@ VisualStudioVersion = 17.10.35013.160
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DrawTriangle", "DrawTriangle\DrawTriangle.vcxproj", "{24B0E20E-1928-4128-B71D-37F997ECF8E2}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DrawQuadTextured", "DrawQuadTextured\DrawQuadTextured.vcxproj", "{7A954752-043F-4824-8D59-1899FECC1470}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -21,6 +23,14 @@ Global
 		{24B0E20E-1928-4128-B71D-37F997ECF8E2}.Release|x64.Build.0 = Release|x64
 		{24B0E20E-1928-4128-B71D-37F997ECF8E2}.Release|x86.ActiveCfg = Release|Win32
 		{24B0E20E-1928-4128-B71D-37F997ECF8E2}.Release|x86.Build.0 = Release|Win32
+		{7A954752-043F-4824-8D59-1899FECC1470}.Debug|x64.ActiveCfg = Debug|x64
+		{7A954752-043F-4824-8D59-1899FECC1470}.Debug|x64.Build.0 = Debug|x64
+		{7A954752-043F-4824-8D59-1899FECC1470}.Debug|x86.ActiveCfg = Debug|Win32
+		{7A954752-043F-4824-8D59-1899FECC1470}.Debug|x86.Build.0 = Debug|Win32
+		{7A954752-043F-4824-8D59-1899FECC1470}.Release|x64.ActiveCfg = Release|x64
+		{7A954752-043F-4824-8D59-1899FECC1470}.Release|x64.Build.0 = Release|x64
+		{7A954752-043F-4824-8D59-1899FECC1470}.Release|x86.ActiveCfg = Release|Win32
+		{7A954752-043F-4824-8D59-1899FECC1470}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
